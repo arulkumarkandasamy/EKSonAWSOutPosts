@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"cd 
 )
 
@@ -36,7 +37,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// 1. Handle Deletion (Cleanup Logic) [cite: 76, 77]
 	if !ns.DeletionTimestamp.IsZero() {
-		if containsString(ns.Finalizers, cleanupFinalizer) {
+		if controllerutil.ContainsFinalizer(ns, cleanupFinalizer) {
 			l.Info("Namespace is being deleted. Cleaning up external AWS resources.", "Namespace", ns.Name)
 
 			// Call AWS SDK to delete associated RDS [cite: 79, 80]
@@ -47,7 +48,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			}
 
 			// Remove finalizer so K8s can finish namespace deletion [cite: 85, 86]
-			ns.Finalizers = removeString(ns.Finalizers, cleanupFinalizer)
+			controllerutil.RemoveFinalizer(ns, cleanupFinalizer)
 			if err := r.Update(ctx, ns); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -56,8 +57,8 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// 2. Ensure Finalizer is present (Safe Lifecycle Management) [cite: 170, 173]
-	if !containsString(ns.Finalizers, cleanupFinalizer) {
-		ns.Finalizers = append(ns.Finalizers, cleanupFinalizer)
+	if !controllerutil.ContainsFinalizer(ns, cleanupFinalizer) {
+		controllerutil.AddFinalizer(ns, cleanupFinalizer)
 		if err := r.Update(ctx, ns); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -85,26 +86,6 @@ func (r *NamespaceReconciler) ensureExternalResources(ctx context.Context, ns *c
 		return r.Update(ctx, ns)
 	}
 	return nil
-}
-
-// Helper functions for string slice management
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-func removeString(slice []string, s string) []string {
-	result := []string{}
-	for _, item := range slice {
-		if item != s {
-			result = append(result, item)
-		}
-	}
-	return result
 }
 
 // SetupWithManager sets up the controller with the Manager.
